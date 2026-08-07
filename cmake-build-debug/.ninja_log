@@ -1,5 +1,0 @@
-# ninja log v7
-2	49	1786121039320054823	CMakeFiles/untitled.dir/main.c.o	6b11b329cbaa4f5f
-49	78	1786121039367016877	untitled	efbb837a3ea27dda
-2	38	1786122600755916964	build.ninja	c60ebe1d19f8fbbf
-2	38	1786122600755916964	/home/asafz/Projects/db-engine/cmake-build-debug/cmake_install.cmake	c60ebe1d19f8fbbf

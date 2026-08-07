@@ -1,3 +1,0 @@
-/home/asafz/Projects/db-engine/cmake-build-debug/CMakeFiles/db-engine.dir
-/home/asafz/Projects/db-engine/cmake-build-debug/CMakeFiles/edit_cache.dir
-/home/asafz/Projects/db-engine/cmake-build-debug/CMakeFiles/rebuild_cache.dir
