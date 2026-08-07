@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/asafz/Projects/db-engine/cmake-build-debug",
+  "command": "/usr/bin/cc -g -std=gnu11 -fdiagnostics-color=always -o CMakeFiles/db-engine.dir/main.c.o -c /home/asafz/Projects/db-engine/main.c",
+  "file": "/home/asafz/Projects/db-engine/main.c",
+  "output": "/home/asafz/Projects/db-engine/cmake-build-debug/CMakeFiles/db-engine.dir/main.c.o"
+}
+]
