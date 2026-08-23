@@ -5,8 +5,13 @@
 #include <stdint.h>
 
 typedef struct {
+    char *table_name;
+    uint64_t table_start;
+} TableData;
+
+typedef struct {
     uint32_t table_count;
-    uint32_t tables_start[];
+    TableData *tables;
 } DbHeader;
 
 //Initialize a new database.

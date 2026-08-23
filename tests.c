@@ -2,7 +2,7 @@
 
 
 int main() {
-    init_db("newDb1");
+    init_table("newDb1", "NEWT");
 
     return 0;
 }

@@ -58,3 +58,4 @@ dkms.conf
 .idea/
 cmake-build-debug/
 build/
+*.crdb
