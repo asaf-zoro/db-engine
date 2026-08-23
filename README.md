@@ -10,8 +10,8 @@ The database file is structured as such:
 | **`tables_start`** | `N × 4 bytes` | `uint32[]` | List of absolute byte offsets pointing to table starting positions |
 
 ### Table Offset Table Details
-- **`table1_start`**: `<byte_offset_1>` — Byte location where Table 1 definition/data begins.
-- **`table2_start`**: `<byte_offset_2>` — Byte location where Table 2 definition/data begins.
+- **`table1_start`**: `<byte_offset_1> - uint32_t` — Byte location where Table 1 definition/data begins.
+- **`table2_start`**: `<byte_offset_2> - uint32_t` — Byte location where Table 2 definition/data begins.
 - **`...`**
 
 ---
