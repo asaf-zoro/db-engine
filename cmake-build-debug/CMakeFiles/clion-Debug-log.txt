@@ -1,13 +1,10 @@
 /home/asafz/.local/share/JetBrains/Toolbox/apps/clion/bin/cmake/linux/x64/bin/cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=/home/asafz/.local/share/JetBrains/Toolbox/apps/clion/bin/ninja/linux/x64/ninja -G Ninja -S /home/asafz/Projects/db-engine -B /home/asafz/Projects/db-engine/cmake-build-debug
--- Configuring done (0.0s)
-CMake Error at CMakeLists.txt:6 (add_executable):
-  Cannot find source file:
-
-    main.c
-
-
-CMake Error at CMakeLists.txt:6 (add_executable):
-  No SOURCES given to target: db-engine
-
-
-CMake Generate step failed.  Build files cannot be regenerated correctly.
+-- The C compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done (0.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/asafz/Projects/db-engine/cmake-build-debug

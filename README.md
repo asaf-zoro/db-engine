@@ -4,6 +4,8 @@
 
 The database file is structured as such:
 
+## 1. DB Header Layout
+
 | Section / Field    | Field Size | Data Type | Description |
 |:-------------------| :--- | :--- | :--- |
 | **`table_count`**  | `4 bytes` | `uint32` | Total number of tables defined in the file |
