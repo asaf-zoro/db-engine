@@ -4,7 +4,6 @@
 
 #include <stdint.h>
 
-//TODO FIX README TOMORROW
 typedef struct {
     char *table_name;
     uint64_t table_start;
