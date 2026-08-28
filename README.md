@@ -48,12 +48,12 @@ Page `0` is located at byte offset `0x0000` and contains global database metadat
 
 Each table defined in Page 0 uses a descriptor to track its schema and page chain:
 
-| Field | Size | Data Type | Description |
-| :--- | :--- | :--- | :--- |
-| **`table_name`** | `10 bytes` | `char[10]` | Null-terminated table name string. |
-| **`row_len`** | `2 bytes` | `uint16_t` | Fixed payload length of an individual row in bytes. |
-| **`page_count`** | `2 bytes` | `uint16_t` | Total number of pages allocated to this table. |
-| **`page_ids`** | `page_count 脳 4B` | `uint32_t[]` | Array of absolute Page IDs assigned to this table. |
+| Field | Size              | Data Type | Description |
+| :--- |:------------------| :--- | :--- |
+| **`table_name`** | `10 bytes`        | `char[10]` | Null-terminated table name string. |
+| **`row_len`** | `2 bytes`         | `uint16_t` | Fixed payload length of an individual row in bytes. |
+| **`page_count`** | `2 bytes`         | `uint16_t` | Total number of pages allocated to this table. |
+| **`page_ids`** | `page_count x 4B` | `uint32_t[]` | Array of absolute Page IDs assigned to this table. |
 
 ---
 
@@ -65,12 +65,12 @@ All pages after Page 0 store row data for assigned tables.
 
 Every data page starts with an 8-byte header tracking its state:
 
-| Field | Size | Data Type | Description |
-| :--- | :--- | :--- | :--- |
-| **`page_type`** | `2 bytes` | `uint16_t` | Flag identifying page category (`0x0001` = Data Page). |
-| **`table_id`** | `2 bytes` | `uint16_t` | Index of the table that owns this page. |
-| **`row_count`** | `2 bytes` | `uint16_t` | Number of rows currently stored in this specific page. |
-| **`max_rows`** | `2 bytes` | `uint16_t` | Maximum rows this page can hold ($(	ext{page\_size} - 8) / 	ext{row\_len}$). |
+| Field             | Size | Data Type | Description |
+|:------------------| :--- | :--- | :--- |
+| **`page_type`**   | `2 bytes` | `uint16_t` | Flag identifying page category (`0x0001` = Data Page). |
+| **`table_index`** | `2 bytes` | `uint16_t` | Index of the table that owns this page. |
+| **`row_count`**   | `2 bytes` | `uint16_t` | Number of rows currently stored in this specific page. |
+| **`max_rows`**    | `2 bytes` | `uint16_t` | Maximum rows this page can hold ($(	ext{page\_size} - 8) / 	ext{row\_len}$). |
 
 ### Data Payload Layout
 

@@ -10,59 +10,36 @@ static void get_db_path(char **db_name) {
     *db_name = path;
 }
 
-static DbHeader *get_db_header(const char *db_name) {
-    FILE *fptr = fopen(db_name, "rb");
+static int pad_page(const uint32_t starting_byte, const uint16_t page_size, FILE *fp) {
+    if (fseek(fp, starting_byte + page_size - 1, SEEK_SET) != 0) return -1;
 
-    DbHeader *new_db = (DbHeader *) malloc(sizeof(DbHeader));
-    fread(new_db, sizeof(DbHeader), 1, fptr);
-
-    if (new_db == NULL) return NULL;
-    new_db->tables = (TableData *)malloc(sizeof(TableData) * new_db->table_count);
-    fread(new_db->tables, sizeof(TableData) * new_db->table_count, 1, fptr);
-    fclose(fptr);
-
-    return new_db;
-};
-
-int init_db(char *db_name) {
-    const DbHeader new_db = {
-        .table_count = 0
-    };
-    get_db_path(&db_name);
-
-    FILE *fptr = fopen(db_name, "wb");
-    fwrite(&new_db, 1, sizeof(DbHeader), fptr);
-    fclose(fptr);
+    if (fputc(0, fp) != 0) return -1;
 
     return 0;
 }
 
-int init_table(char *db_name, char *table_name) {
-    get_db_path(&db_name);
-
-    DbHeader *my_db = get_db_header(db_name);
-    FILE *fptr = fopen(db_name, "wb");
-
-    fseek(fptr, 0, SEEK_END);
-    uint64_t new_table_pos = ftell(fptr);
-
-    const TableData new_table = {
-        .table_name = table_name,
-        .table_start = new_table_pos,
+int init_db(char *db_name) {
+    const DbHeader new_db = {
+        .magic = "CDB",
+        .page_size = DEFAULT_PAGE_SIZE,
+        .total_pages = 1,
+        .table_count = 0,
     };
 
-    my_db->table_count += 1;
-    TableData *tmp = (TableData *) realloc(my_db->tables, my_db->table_count * sizeof(TableData));
-    if (tmp == NULL) {
-        free(my_db->tables);
-        free(my_db);
+    get_db_path(&db_name);
+    FILE *fp = fopen(db_name, "wb");
+    if (fp == NULL) return -1;
+
+    if (fwrite(&new_db, sizeof(DbHeader), 1, fp) != 1) {
+        fclose(fp);
         return -1;
     }
 
-    my_db->tables = tmp;
-    my_db->tables[my_db->table_count - 1] = new_table;
+    if (pad_page(0, new_db.page_size, fp) != 0) {
+        fclose(fp);
+        return -1;
+    }
 
-    fwrite(my_db, (sizeof(DbHeader) + sizeof(TableData) * my_db->table_count), 1, fptr);
-    fclose(fptr);
+    fclose(fp);
     return 0;
 }
