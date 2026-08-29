@@ -2,7 +2,8 @@
 
 
 int main() {
-    init_db("newDb1");
+    uint8_t sizes[3] = {4, 1, 8};
+    init_table("MyDB", "MyTab", 3, sizes);
 
     return 0;
 }

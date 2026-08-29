@@ -4,6 +4,10 @@
 #define FILE_ENDING ".crdb"
 #define DEFAULT_PAGE_SIZE 4096
 
+#define PAGE_TYPE_HEADER 0x01
+#define PAGE_TYPE_SCHEMA 0x02
+#define PAGE_TYPE_DATA   0x03
+
 #include <stdint.h>
 
 typedef struct {
@@ -14,10 +18,16 @@ typedef struct {
 } DataPage;
 
 typedef struct {
+    uint16_t page_type;
+    uint16_t col_count;
+    uint8_t col_data[];
+} SchemaPage;
+
+typedef struct {
     char table_name[10];
-    uint16_t row_len;
+    uint32_t schema_page_id;
     uint16_t page_count;
-    uint32_t page_ids[];
+    uint32_t pages_page_id;
 } TableEntry;
 
 typedef struct {
@@ -32,6 +42,6 @@ typedef struct {
 int init_db(char *db_name);
 
 //Initialize a new (fixed size for now) table, and adds it to the db.
-int init_table(char *db_name, char *table_name);
+int init_table(char *db_name, char *table_name, uint16_t col_count, uint8_t *col_sizes);
 
 #endif
