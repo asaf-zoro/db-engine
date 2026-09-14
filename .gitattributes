@@ -1,0 +1,3 @@
+# Exclude CMake build scripts from language detection
+*.cmake linguist-vendored
+CMakeLists.txt linguist-vendored
