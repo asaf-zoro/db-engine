@@ -1,5 +1,7 @@
-#ifndef ENGINE_H
-#define ENGINE_H
+#ifndef DB_ENGINE_H
+#define DB_ENGINE_H
+
+#include <stdint.h>
 
 #define FILE_ENDING ".crdb"
 #define DEFAULT_PAGE_SIZE 4096
@@ -7,8 +9,6 @@
 #define PAGE_TYPE_HEADER 0x01
 #define PAGE_TYPE_SCHEMA 0x02
 #define PAGE_TYPE_DATA   0x03
-
-#include <stdint.h>
 
 typedef struct {
     uint16_t page_type;
@@ -38,10 +38,8 @@ typedef struct {
     TableEntry tables[];
 } DbHeader;
 
-//Initialize a new database.
 int init_db(char *db_name);
 
-//Initialize a new (fixed size for now) table, and adds it to the db.
 int init_table(char *db_name, char *table_name, uint16_t col_count, uint8_t *col_sizes);
 
 #endif

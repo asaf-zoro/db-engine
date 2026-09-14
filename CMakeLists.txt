@@ -3,4 +3,12 @@ project(db-engine C)
 
 set(CMAKE_C_STANDARD 11)
 
-add_executable(db-engine tests.c engine/engine.c)
+include_directories(include src)
+
+add_executable(db-engine
+    tests/main.c
+    src/core/page.c
+    src/core/header.c
+    src/commands/init_db.c
+    src/commands/init_table.c
+)
