@@ -1,90 +1,129 @@
 # CerberusDB
 
-**CerberusDB** is a lightweight, open-source DBMS utilizing a **Paged Architecture** (4096-byte pages) for robust raw binary file storage.
+**CerberusDB** is a lightweight, dependency-free embedded database engine
+written in C11, using a fixed-size **paged file format** (4096-byte pages)
+for raw binary storage. It's a from-scratch systems-programming project and
+is still early / actively evolving — the format below reflects what the
+code actually does today, not a finished spec.
 
 ---
 
-## 1. Database Architecture Overview
+## Status
 
-The database file is divided into uniform **4KB (4096 bytes)** pages. Space is allocated dynamically in page units, preventing data corruption and eliminating the need to shift file bytes when tables grow.
+| Capability | Status |
+| :--- | :--- |
+| Create a database file (`init_db`) | ✅ Implemented |
+| Create a table with a fixed-width column schema (`init_table`) | ✅ Implemented |
+| Insert a row | ❌ Not implemented |
+| Read / select rows | ❌ Not implemented |
+| Data-page allocation & overflow when a table's page fills up | ❌ Not implemented |
+| Query language / parser | ❌ Not implemented |
 
-```
-+-----------------------------------------------------------------+
-| PAGE 0: GLOBAL DB HEADER (4096 Bytes)                           |
-|   [ magic_bytes: 4B ] [ page_size: 2B ] [ total_pages: 4B ]     |
-|   [ table_count: 4B ]                                           |
-|   Table Definitions:                                            |
-|     - Table 1 (Name: "users", Pages: [ 1, 3 ])                  |
-|     - Table 2 (Name: "orders", Pages: [ 2 ])                    |
-+-----------------------------------------------------------------+
-| PAGE 1: Table 1 Data Page (4096 Bytes)                          |
-|   [ Page Header ] [ Row 0 ] [ Row 1 ] ... [ Row N ]             |
-+-----------------------------------------------------------------+
-| PAGE 2: Table 2 Data Page (4096 Bytes)                          |
-|   [ Page Header ] [ Row 0 ] [ Row 1 ] ... [ Row M ]             |
-+-----------------------------------------------------------------+
-| PAGE 3: Table 1 Data Page (Overflow / Dynamic Allocation)       |
-|   [ Page Header ] [ Row N+1 ] [ Row N+2 ] ...                   |
-+-----------------------------------------------------------------+
+There is currently no query engine, no row storage, and no test suite
+(`tests/main.c` is a manual smoke test, not an automated one). What exists
+so far is the metadata layer: creating a `.crdb` file and registering a
+table's schema inside it.
+
+---
+
+## Build
+
+Requires CMake 3.28+ and a C11 compiler. No external dependencies.
+
+```sh
+cmake -B cmake-build-debug -G Ninja
+cmake --build cmake-build-debug
 ```
 
 ---
 
-## 2. Page 0: Global DB Header Layout
+## On-Disk Format
 
-Page `0` is located at byte offset `0x0000` and contains global database metadata and table allocation maps.
+A database is a single `<name>.crdb` file, divided into fixed **4096-byte
+pages**, numbered from 0.
 
-### Global Header Structure
+```
++-----------------------------------------------------------------+
+| PAGE 0: Global DB Header                                         |
+|   [ magic: 4B ][ page_size: 2B ][ total_pages: 4B ]              |
+|   [ table_count: 4B ][ TableEntry[] ... ]                        |
++-----------------------------------------------------------------+
+| PAGE N: Schema Page for a table                                  |
+|   [ page_type: 2B ][ col_count: 2B ][ col_data[]: col_count B ]  |
++-----------------------------------------------------------------+
+| PAGE N+1: Page-list page for that table (reserved, currently     |
+|   zero-filled — see "Known limitations" below)                  |
++-----------------------------------------------------------------+
+```
 
-| Field | Size | Data Type | Description |
+Each table takes **two pages** at creation time: one for its schema, one
+reserved for tracking its data pages. Actual row/data pages (a third kind,
+described below) are not created yet since insert isn't implemented.
+
+### Page 0: Global DB Header (`DbHeader`)
+
+| Field | Size | Type | Description |
 | :--- | :--- | :--- | :--- |
-| **`magic`** | `4 bytes` | `char[4]` | File signature identifier (`"CDB "`). |
-| **`page_size`** | `2 bytes` | `uint16_t` | Fixed size of each page in bytes (Default: `4096`). |
-| **`total_pages`** | `4 bytes` | `uint32_t` | Total number of allocated pages in the database file. |
-| **`table_count`** | `4 bytes` | `uint32_t` | Number of defined tables in the database. |
-| **`table_entries`**| Variable | `TableEntry[]` | Array of table definition entries. |
+| `magic` | 4 bytes | `char[4]` | File signature, `"CRDB"` (not currently validated on read). |
+| `page_size` | 2 bytes | `uint16_t` | Page size in bytes (currently always `4096`). |
+| `total_pages` | 4 bytes | `uint32_t` | Total pages allocated in the file so far. |
+| `table_count` | 4 bytes | `uint32_t` | Number of tables defined. |
+| `tables` | variable | `TableEntry[]` | One entry per table, appended in creation order. |
 
-### TableEntry Descriptor Structure
+### Table Descriptor (`TableEntry`)
 
-Each table defined in Page 0 uses a descriptor to track its schema and page chain:
+| Field | Size | Type | Description |
+| :--- | :--- | :--- | :--- |
+| `table_name` | 10 bytes | `char[10]` | Table name (no length check on write — see limitations). |
+| `schema_page_id` | 4 bytes | `uint32_t` | Page id holding this table's `SchemaPage`. |
+| `page_count` | 2 bytes | `uint16_t` | Reserved for tracking how many data pages this table owns; not yet updated anywhere. |
+| `pages_page_id` | 4 bytes | `uint32_t` | Page id reserved for this table's data-page list; currently allocated but never written to. |
 
-| Field | Size              | Data Type | Description |
-| :--- |:------------------| :--- | :--- |
-| **`table_name`** | `10 bytes`        | `char[10]` | Null-terminated table name string. |
-| **`row_len`** | `2 bytes`         | `uint16_t` | Fixed payload length of an individual row in bytes. |
-| **`page_count`** | `2 bytes`         | `uint16_t` | Total number of pages allocated to this table. |
-| **`page_ids`** | `page_count x 4B` | `uint32_t[]` | Array of absolute Page IDs assigned to this table. |
+### Schema Page (`SchemaPage`)
 
----
+| Field | Size | Type | Description |
+| :--- | :--- | :--- | :--- |
+| `page_type` | 2 bytes | `uint16_t` | `PAGE_TYPE_SCHEMA` (`0x02`). |
+| `col_count` | 2 bytes | `uint16_t` | Number of columns. |
+| `col_data` | `col_count` bytes | `uint8_t[]` | Byte-width of each column, in order (columns are fixed-size, untyped — a column is just "N bytes wide"). |
 
-## 3. Data Page Structure (Pages 1+)
+### Data Page (`DataPage`) — defined, not yet produced by any code path
 
-All pages after Page 0 store row data for assigned tables.
+| Field | Size | Type | Description |
+| :--- | :--- | :--- | :--- |
+| `page_type` | 2 bytes | `uint16_t` | `PAGE_TYPE_DATA` (`0x03`). |
+| `table_index` | 2 bytes | `uint16_t` | Index of the owning table. |
+| `row_count` | 2 bytes | `uint16_t` | Rows currently stored on this page. |
+| `max_rows` | 2 bytes | `uint16_t` | Capacity: `(page_size - 8) / row_len`. |
 
-### Data Page Header Layout (8 bytes total)
-
-Every data page starts with an 8-byte header tracking its state:
-
-| Field             | Size | Data Type | Description |
-|:------------------| :--- | :--- | :--- |
-| **`page_type`**   | `2 bytes` | `uint16_t` | Flag identifying page category (`0x0001` = Data Page). |
-| **`table_index`** | `2 bytes` | `uint16_t` | Index of the table that owns this page. |
-| **`row_count`**   | `2 bytes` | `uint16_t` | Number of rows currently stored in this specific page. |
-| **`max_rows`**    | `2 bytes` | `uint16_t` | Maximum rows this page can hold ($(	ext{page\_size} - 8) / 	ext{row\_len}$). |
-
-### Data Payload Layout
-
-Rows are packed sequentially immediately after the 8-byte data page header:
-
-$$	ext{Data Region Offset} = (	ext{Page ID} 	imes 4096) + 8$$
+Rows, once insertion exists, are expected to be packed back-to-back
+immediately after this 8-byte header.
 
 ---
 
-## 4. Insertion Mechanics
+## Known limitations
 
-When inserting a row into a target table:
+- **Data-page tracking is a stub**: each table reserves a `pages_page_id`
+  page and a `page_count` field, but nothing ever writes to that page or
+  increments the count — there's no way yet to actually allocate or find a
+  table's data pages. This needs to be designed as part of implementing
+  insert.
+- **No automated tests**: `tests/main.c` just calls `init_table` once by
+  hand; there's no `init_db` call before it (it relies on a `MyDB.crdb`
+  already existing from a previous run) and nothing is asserted.
+- `init_table`'s declaration in `db_engine.h` (`char *table_name`) doesn't
+  match its definition's `char table_name[10]`, which triggers a compiler
+  warning (`-Warray-parameter`) — harmless today, but worth aligning.
 
-1. Locate the active page ID from the table's `page_ids` list in Page 0.
-2. Check if `row_count < max_rows` for that page.
-3. **If space is available:** Append the row data at offset $(	ext{Data Region Offset} + (	ext{row\_count} 	imes 	ext{row\_len}))$ and increment `row_count`.
-4. **If full:** Allocate a new page at file offset $(	ext{total\_pages} 	imes 4096)$, append the new Page ID to the table's `page_ids` list in Page 0, update `total_pages`, and write the row to the new page.
+---
+
+## Project layout
+
+```
+include/db_engine.h        Public types & function declarations
+src/core/header.c, header.h    DB-path helpers, header read/write
+src/core/page.c, page.h        Page-level helpers (zero-fill a page)
+src/commands/init_db.c         Create a new .crdb file
+src/commands/init_table.c      Register a new table's schema
+tests/main.c                   Manual smoke test
+```

@@ -6,7 +6,7 @@
 
 int init_db(char *db_name) {
     const DbHeader new_db = {
-        .magic = "CDB",
+        .magic = "CRDB",
         .page_size = DEFAULT_PAGE_SIZE,
         .total_pages = 1,
         .table_count = 0,
