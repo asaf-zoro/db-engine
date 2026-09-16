@@ -16,11 +16,23 @@ DbHeader *read_db_header(const char *db_path) {
     if (fp == NULL) return NULL;
 
     DbHeader base_info;
-    fread(&base_info, sizeof(DbHeader), 1, fp);
+    if (fread(&base_info, sizeof(DbHeader), 1, fp) != 1) {
+        fclose(fp);
+        return NULL;
+    }
 
     DbHeader *header = (DbHeader*)malloc(base_info.page_size);
+    if (header == NULL) {
+        fclose(fp);
+        return NULL;
+    }
+
     fseek(fp, 0, SEEK_SET);
-    fread(header, base_info.page_size, 1, fp);
+    if (fread(header, base_info.page_size, 1, fp) != 1) {
+        fclose(fp);
+        free(header);
+        return NULL;
+    }
 
     fclose(fp);
     return header;

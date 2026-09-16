@@ -70,20 +70,29 @@ overflow/growth when a data page fills up (the README's "Insertion
 Mechanics" section describes intended behavior for this, but no code
 implements it), and any real test suite.
 
-## Known rough edges (found during review, not yet fixed)
+## Known rough edges
 
-- `init_db.c`: `.magic = "CDB"` is a 3-character string literal assigned to
-  a `char[4]` — it does *not* match the README's documented 4-byte magic
-  `"CDB "` (with a trailing space); the 4th byte ends up as `'\0'`.
-- Missing `NULL`/error checks in several places: `fopen` in `init_table.c`
-  is not checked; `malloc` results in `init_table.c` (`new_table`) and
-  `header.c` (`read_db_header`'s `base_info`/`header`) aren't checked either.
-- `init_table()` does `strcpy(new_table->table_name, table_name)` into a
-  10-byte buffer with no length validation — a longer name overflows it.
+Fixed (per user decision — see git history):
+- `init_db.c`'s magic bytes are now `"CRDB"` (4 bytes, fits `char[4]`
+  exactly with no null terminator stored — this is legal C).
+- `init_table()` now rejects table names that don't fit in the 10-byte
+  `table_name` buffer (checked via `strlen(table_name) >=
+  sizeof(((TableEntry*)0)->table_name)`) instead of overflowing via `strcpy`.
+- `fopen`/`malloc`/`realloc` results are now NULL-checked in
+  `init_table.c` and `header.c`'s `read_db_header()`, with cleanup on each
+  failure path (previously a missing db file, e.g. calling `init_table`
+  before `init_db`, would dereference a NULL header and crash).
+
+Still open (deliberately left as-is, or out of scope so far):
+- `pages_page_id`/`page_count` on `TableEntry` are allocated/reserved but
+  never actually written to or incremented — this is an intentional stub
+  until row insert/data-page tracking is designed; don't "fix" it without
+  discussing the design first.
 - `get_db_path()`'s allocated path string is never freed by callers
-  (`init_db`, `init_table` both leak it).
-- `init_table.c` leaks `db_header`/`new_table`/`tables_schema` on its early
-  `return -1` path (after the `realloc` failure check).
+  (`init_db`, `init_table` both leak it) — not yet addressed.
+- `init_table`'s declaration in `db_engine.h` (`char *table_name`) doesn't
+  match its definition's `char table_name[10]` — triggers a harmless
+  `-Warray-parameter` warning, not yet aligned.
 
 ## Conventions
 
