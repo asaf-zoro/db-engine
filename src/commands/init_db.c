@@ -1,6 +1,6 @@
-#include "db_engine.h"
 #include "core/header.h"
 #include "core/page.h"
+#include "db_engine.h"
 
 #include <stdio.h>
 
@@ -14,8 +14,8 @@ int init_db(char *db_name) {
 
     get_db_path(&db_name);
     FILE *fp = fopen(db_name, "wb");
-    if (fp == NULL) return -1;
-
+    if (fp == NULL)
+        return -1;
 
     if (pad_page(0, new_db.page_size, fp) != 0) {
         fclose(fp);
