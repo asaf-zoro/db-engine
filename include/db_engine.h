@@ -65,6 +65,6 @@ int init_db(char *db_name);
 
 int init_table(char *db_name, char *table_name, uint16_t col_count, const ColumnDef *cols);
 
-int insert(char *db_name, char *table_name, const uint8_t *row);
+int insert(char *db_name, char *table_name, const Value *values);
 
 #endif
