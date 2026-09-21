@@ -13,16 +13,17 @@ code actually does today, not a finished spec.
 | Capability | Status |
 | :--- | :--- |
 | Create a database file (`init_db`) | ✅ Implemented |
-| Create a table with a fixed-width column schema (`init_table`) | ✅ Implemented |
-| Insert a row | ❌ Not implemented |
+| Create a table with a typed, fixed-width column schema (`init_table`) | ✅ Implemented |
+| Insert a row (`insert`) | 🚧 Declared with a `Value`-based signature; body is an empty stub |
 | Read / select rows | ❌ Not implemented |
 | Data-page allocation & overflow when a table's page fills up | ❌ Not implemented |
 | Query language / parser | ❌ Not implemented |
 
-There is currently no query engine, no row storage, and no test suite
-(`tests/main.c` is a manual smoke test, not an automated one). What exists
-so far is the metadata layer: creating a `.crdb` file and registering a
-table's schema inside it.
+There is currently no query engine and no row storage. What exists so far is
+the metadata layer: creating a `.crdb` file and registering a table's typed
+schema inside it. `tests/main.c` is an assertion-based test written ahead of
+`insert`, so the project does not link until `insert` is implemented (see
+"Known limitations").
 
 ---
 
@@ -49,7 +50,8 @@ pages**, numbered from 0.
 |   [ table_count: 4B ][ TableEntry[] ... ]                        |
 +-----------------------------------------------------------------+
 | PAGE N: Schema Page for a table                                  |
-|   [ page_type: 2B ][ col_count: 2B ][ col_data[]: col_count B ]  |
+|   [ page_type: 2B ][ col_count: 2B ]                             |
+|   [ ColumnDef[]: col_count x (type: 1B, size: 1B) ]              |
 +-----------------------------------------------------------------+
 | PAGE N+1: Page-list page for that table (reserved, currently     |
 |   zero-filled — see "Known limitations" below)                  |
@@ -60,32 +62,83 @@ Each table takes **two pages** at creation time: one for its schema, one
 reserved for tracking its data pages. Actual row/data pages (a third kind,
 described below) are not created yet since insert isn't implemented.
 
+> **Structs are written to disk as-is (not packed).** The compiler's
+> alignment padding is part of the file format, so the offsets below include
+> it. Changing a struct's field order or types changes the on-disk layout.
+
 ### Page 0: Global DB Header (`DbHeader`)
 
-| Field | Size | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `magic` | 4 bytes | `char[4]` | File signature, `"CRDB"` (not currently validated on read). |
-| `page_size` | 2 bytes | `uint16_t` | Page size in bytes (currently always `4096`). |
-| `total_pages` | 4 bytes | `uint32_t` | Total pages allocated in the file so far. |
-| `table_count` | 4 bytes | `uint32_t` | Number of tables defined. |
-| `tables` | variable | `TableEntry[]` | One entry per table, appended in creation order. |
+Fixed part is **16 bytes**, followed by the `TableEntry` array.
+
+| Field | Offset | Size | Type | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `magic` | 0 | 4 bytes | `char[4]` | File signature, `"CRDB"` (not currently validated on read). |
+| `page_size` | 4 | 2 bytes | `uint16_t` | Page size in bytes (currently always `4096`). |
+| *(padding)* | 6 | 2 bytes | | Alignment padding before `total_pages`. |
+| `total_pages` | 8 | 4 bytes | `uint32_t` | Total pages allocated in the file so far. |
+| `table_count` | 12 | 4 bytes | `uint32_t` | Number of tables defined. |
+| `tables` | 16 | variable | `TableEntry[]` | One entry per table, appended in creation order. |
 
 ### Table Descriptor (`TableEntry`)
 
-| Field | Size | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `table_name` | 10 bytes | `char[10]` | Table name (no length check on write — see limitations). |
-| `schema_page_id` | 4 bytes | `uint32_t` | Page id holding this table's `SchemaPage`. |
-| `page_count` | 2 bytes | `uint16_t` | Reserved for tracking how many data pages this table owns; not yet updated anywhere. |
-| `pages_page_id` | 4 bytes | `uint32_t` | Page id reserved for this table's data-page list; currently allocated but never written to. |
+**24 bytes** per entry.
+
+| Field | Offset | Size | Type | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `table_name` | 0 | 10 bytes | `char[10]` | Table name. Must be at most 9 characters (plus the terminator); longer names are rejected by `init_table`. |
+| *(padding)* | 10 | 2 bytes | | Alignment padding before `schema_page_id`. |
+| `schema_page_id` | 12 | 4 bytes | `uint32_t` | Page id holding this table's `SchemaPage`. |
+| `page_count` | 16 | 2 bytes | `uint16_t` | Reserved for tracking how many data pages this table owns; not yet updated anywhere. |
+| *(padding)* | 18 | 2 bytes | | Alignment padding before `pages_page_id`. |
+| `pages_page_id` | 20 | 4 bytes | `uint32_t` | Page id reserved for this table's data-page list; currently allocated but never written to. |
 
 ### Schema Page (`SchemaPage`)
 
+The fixed part is **4 bytes**; the whole schema is `4 + 2 * col_count` bytes
+and must fit in one page.
+
+| Field | Offset | Size | Type | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `page_type` | 0 | 2 bytes | `uint16_t` | `PAGE_TYPE_SCHEMA` (`0x02`). |
+| `col_count` | 2 | 2 bytes | `uint16_t` | Number of columns (at least 1). |
+| `col_data` | 4 | `2 * col_count` bytes | `ColumnDef[]` | One `ColumnDef` per column, in order. |
+
+### Column types (`ColumnDef`, `COL_TYPE_*`)
+
+Each column has a type and a fixed width in bytes. A `ColumnDef` is 2 bytes:
+
 | Field | Size | Type | Description |
 | :--- | :--- | :--- | :--- |
-| `page_type` | 2 bytes | `uint16_t` | `PAGE_TYPE_SCHEMA` (`0x02`). |
-| `col_count` | 2 bytes | `uint16_t` | Number of columns. |
-| `col_data` | `col_count` bytes | `uint8_t[]` | Byte-width of each column, in order (columns are fixed-size, untyped — a column is just "N bytes wide"). |
+| `type` | 1 byte | `uint8_t` | One of the `COL_TYPE_*` tags below. |
+| `size` | 1 byte | `uint8_t` | Column width in bytes; the allowed values depend on `type`. |
+
+| Type | Tag | Allowed `size` | Meaning |
+| :--- | :--- | :--- | :--- |
+| `COL_TYPE_INT` | `0x01` | 1, 2, 4 or 8 | Signed integer. |
+| `COL_TYPE_FLOAT` | `0x02` | 4 or 8 | Floating point (`float` / `double`). |
+| `COL_TYPE_CHAR` | `0x03` | 1 or more | Text, zero-padded to `size`. Not null-terminated. |
+
+`init_table` rejects a table (returns `-1`) if any of these fail:
+
+- `col_count` is `0`, or the schema doesn't fit in one page.
+- Any column has an unknown `type` or a `size` outside the table above.
+- Not even one row fits in a data page (`sizeof(DataPage) + row_size > page_size`,
+  where `row_size` is the sum of the column sizes).
+
+### Row values (`Value`) — in-memory only
+
+`Value` is the typed argument that `insert` takes; it is **not** stored on
+disk. Its `type` (a `COL_TYPE_*` tag) selects which union member is valid:
+
+| `type` | Member | C type |
+| :--- | :--- | :--- |
+| `COL_TYPE_INT` | `as.i` | `int64_t` |
+| `COL_TYPE_FLOAT` | `as.f` | `double` |
+| `COL_TYPE_CHAR` | `as.chars` | `{ const char *data; size_t len; }` (not null-terminated) |
+
+`insert(db_name, table_name, const Value *values)` takes one `Value` per
+column, in schema order. It is declared but not implemented yet, so the
+narrowing rules (e.g. `int64_t` into a 2-byte column) are still undecided.
 
 ### Data Page (`DataPage`) — defined, not yet produced by any code path
 
@@ -94,10 +147,10 @@ described below) are not created yet since insert isn't implemented.
 | `page_type` | 2 bytes | `uint16_t` | `PAGE_TYPE_DATA` (`0x03`). |
 | `table_index` | 2 bytes | `uint16_t` | Index of the owning table. |
 | `row_count` | 2 bytes | `uint16_t` | Rows currently stored on this page. |
-| `max_rows` | 2 bytes | `uint16_t` | Capacity: `(page_size - 8) / row_len`. |
+| `max_rows` | 2 bytes | `uint16_t` | Capacity: `(page_size - 8) / row_len`, where `row_len` is the sum of the column sizes. |
 
 Rows, once insertion exists, are expected to be packed back-to-back
-immediately after this 8-byte header.
+immediately after this 8-byte header, with no padding between columns.
 
 ---
 
@@ -108,9 +161,15 @@ immediately after this 8-byte header.
   increments the count — there's no way yet to actually allocate or find a
   table's data pages. This needs to be designed as part of implementing
   insert.
-- **No automated tests**: `tests/main.c` just calls `init_table` once by
-  hand; there's no `init_db` call before it (it relies on a `MyDB.crdb`
-  already existing from a previous run) and nothing is asserted.
+- **The project doesn't link yet**: `insert` is declared in `db_engine.h`
+  but `src/commands/insert.c` has no body, so `tests/main.c` fails with an
+  undefined reference to `insert`.
+- **`tests/main.c` is ahead of the code and partly stale**: it uses `assert`
+  (no test framework) to describe the intended insert behavior — 315 rows of
+  13 bytes overflowing into a second data page, `page_count == 2`,
+  `total_pages == 5`. But it still passes a raw `uint8_t row[13]` to
+  `insert`, not the `Value` array the current signature expects, and it
+  doesn't yet exercise the new column types beyond building the schema.
 - `init_table`'s declaration in `db_engine.h` (`char *table_name`) doesn't
   match its definition's `char table_name[10]`, which triggers a compiler
   warning (`-Warray-parameter`) — harmless today, but worth aligning.
@@ -120,10 +179,11 @@ immediately after this 8-byte header.
 ## Project layout
 
 ```
-include/db_engine.h        Public types & function declarations
-src/core/header.c, header.h    DB-path helpers, header read/write
+include/db_engine.h        Public types (ColumnDef, Value, page structs) & declarations
+src/core/header.c, header.h    DB-path helpers, header read
 src/core/page.c, page.h        Page-level helpers (zero-fill a page)
 src/commands/init_db.c         Create a new .crdb file
-src/commands/init_table.c      Register a new table's schema
-tests/main.c                   Manual smoke test
+src/commands/init_table.c      Validate a column schema and register a new table
+src/commands/insert.c          Insert a row (empty stub)
+tests/main.c                   Assertion-based test for init + insert (insert not implemented yet)
 ```
