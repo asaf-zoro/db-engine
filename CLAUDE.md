@@ -22,6 +22,10 @@ cmake --build cmake-build-debug
 - Everything currently builds into a single executable target `db-engine`
   (see `CMakeLists.txt`) — there is no separate library target and no
   dedicated test binary yet.
+- **The build currently fails at link time**: `insert` is declared in
+  `db_engine.h` and `src/commands/insert.c` is in `CMakeLists.txt`, but the
+  file has no function body, so `tests/main.c` hits an undefined reference
+  to `insert`. This is expected until insert is written.
 
 ## Current architecture (as implemented in code, not the README)
 
@@ -30,45 +34,72 @@ cmake --build cmake-build-debug
     `table_count`, followed by a flexible array of `TableEntry`.
   - `TableEntry`: `table_name[10]`, `schema_page_id`, `page_count`,
     `pages_page_id`. Note this is **indirection-based** — a table's schema
-    and its data-page list each live in their own page, referenced by id —
-    unlike the README's design (see below).
-  - `SchemaPage`: `page_type`, `col_count`, flexible `col_data[]`.
+    and its data-page list each live in their own page, referenced by id.
+  - `ColumnDef`: `{ uint8_t type; uint8_t size; }` (2 bytes) — one per
+    column, replacing the earlier untyped "byte width only" columns.
+  - Column type tags `COL_TYPE_INT/FLOAT/CHAR` (0x01/0x02/0x03) and their
+    allowed sizes: INT = 1/2/4/8 (signed), FLOAT = 4/8, CHAR = any size
+    >= 1 (text, zero-padded, not null-terminated).
+  - `SchemaPage`: `page_type`, `col_count`, flexible `ColumnDef col_data[]`
+    (so the schema takes `4 + 2 * col_count` bytes).
   - `DataPage`: `page_type`, `table_index`, `row_count`, `max_rows`.
+  - `Value`: **in-memory only**, never written to disk. A tagged union
+    (`type` + `as.i` / `as.f` / `as.chars{data,len}`) that is the typed
+    argument of `insert`.
   - Page type tags: `PAGE_TYPE_HEADER/SCHEMA/DATA` (0x01/0x02/0x03).
+  - Public functions: `init_db(db_name)`,
+    `init_table(db_name, table_name, col_count, const ColumnDef *cols)`,
+    `insert(db_name, table_name, const Value *values)` (declared only).
+  - Structs are written to disk raw, **not packed**, so alignment padding is
+    part of the format: `DbHeader` fixed part is 16 bytes (2 bytes padding
+    after `page_size`), `TableEntry` is 24 bytes (padding after
+    `table_name` and after `page_count`). Reordering fields or changing
+    types changes the file layout.
 - `src/core/page.c` — `pad_page()`: zero-fills a page at a given page id.
 - `src/core/header.c` — `get_db_path()` (appends `.crdb`, allocates the
   path string — caller does not currently free it), and `read_db_header()`
   (reads page 0 into a heap-allocated `DbHeader`, sized to `page_size`).
 - `src/commands/init_db.c` — creates a new `.crdb` file with a zeroed page 0
   and writes the initial `DbHeader`.
-- `src/commands/init_table.c` — allocates a schema page + a page-list page
-  for a new table, writes the schema, and appends a `TableEntry` to page 0.
-- `tests/main.c` — **not a real test suite**: it's a manual smoke-test
-  `main()` that calls `init_table("MyDB", "MyTab", ...)` directly (it does
-  not call `init_db` first, so it depends on a `MyDB.crdb` already existing
-  from a prior run). There is no assertion framework in use.
+- `src/commands/init_table.c` — validates the column schema
+  (`valid_columns()`), allocates a schema page + a page-list page for a new
+  table, writes the schema, and appends a `TableEntry` to page 0.
+  `valid_columns()` rejects: `col_count == 0`, a schema that doesn't fit in
+  a page, an unknown column type or a size not allowed for its type, and a
+  row so wide that not even one row fits in a data page
+  (`sizeof(DataPage) + row_size > page_size`).
+- `src/commands/insert.c` — **empty stub** (only includes, no function
+  body). `insert()` is declared in `db_engine.h` but not defined.
+- `tests/main.c` — **not a real test suite**, but no longer just a smoke
+  test: it's a single `main()` using `assert` (plain `assert.h`, no
+  framework) that calls `init_db`, `init_table` with a 3-column
+  `{INT4, INT1, FLOAT8}` schema, then inserts 315 rows and checks the
+  overflow into a second data page (`max_rows == 314`, `page_count == 2`,
+  `total_pages == 5`). It is **written ahead of the implementation and
+  partly stale**: it still passes a raw `uint8_t row[13]` to `insert`
+  instead of a `Value` array, so it doesn't compile cleanly against the
+  current signature, and it can't link until `insert` exists.
 
-### ⚠️ README.md is not in sync with the code
+### README.md and the code
 
-`README.md` documents an **older/different** on-disk layout: it describes a
-`TableEntry` with an inline `page_ids[]` array and a single `page_type`
-tag for data pages (0x0001), with no concept of a separate schema page.
-The actual code in `db_engine.h` instead splits each table's schema and
-page-list into their own pages (`schema_page_id` / `pages_page_id`) and has
-three page types. **Neither the README nor the code has been confirmed as
-the final intended design** — when working on storage-format changes,
-don't treat either as ground truth; ask or check with the user before
-assuming which direction to reconcile them in.
+`README.md` was rewritten to describe the current code (indirection-based
+`TableEntry`, separate schema / page-list / data pages, `ColumnDef` typed
+columns, `Value`), and should match `db_engine.h`. Both still describe a
+snapshot, not a settled design — **when changing the storage format, update
+both the README and this file together**, and check with the user before
+making a format decision (e.g. how `insert` narrows a `Value` into a
+column) that the code doesn't already fix.
 
 ## What's implemented vs. missing
 
 Implemented: creating a database file (`init_db`), creating a table with a
-fixed-size-column schema (`init_table`).
+typed fixed-width column schema (`init_table`, including column validation).
 
-Not implemented yet: row insert, row read/select, any query logic, page
-overflow/growth when a data page fills up (the README's "Insertion
-Mechanics" section describes intended behavior for this, but no code
-implements it), and any real test suite.
+Declared but not implemented: `insert` (signature is
+`insert(db_name, table_name, const Value *values)`; the body is empty).
+
+Not implemented yet: row read/select, any query logic, page
+overflow/growth when a data page fills up, and any real test suite.
 
 ## Known rough edges
 

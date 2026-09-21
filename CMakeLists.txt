@@ -11,4 +11,5 @@ add_executable(db-engine
     src/core/header.c
     src/commands/init_db.c
     src/commands/init_table.c
+    src/commands/insert.c
 )
