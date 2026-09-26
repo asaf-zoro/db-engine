@@ -5,9 +5,10 @@
 #include <string.h>
 
 void get_db_path(char **db_name) {
-    char *path = malloc((strlen(*db_name) + strlen(FILE_ENDING) + 1) * sizeof(char));
+    size_t size = strlen("./") + strlen(*db_name) + strlen(FILE_ENDING) + 1;
+    char *path = malloc(size);
     if (path == NULL) return;
-    snprintf(path, 255, "./%s%s", *db_name, FILE_ENDING);
+    snprintf(path, size, "./%s%s", *db_name, FILE_ENDING);
     *db_name = path;
 }
 

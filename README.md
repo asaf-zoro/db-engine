@@ -14,16 +14,16 @@ code actually does today, not a finished spec.
 | :--- | :--- |
 | Create a database file (`init_db`) | ✅ Implemented |
 | Create a table with a typed, fixed-width column schema (`init_table`) | ✅ Implemented |
-| Insert a row (`insert`) | 🚧 Declared with a `Value`-based signature; body is an empty stub |
+| Insert a row (`insert`) | ✅ Implemented (one data page per table) |
 | Read / select rows | ❌ Not implemented |
-| Data-page allocation & overflow when a table's page fills up | ❌ Not implemented |
+| Data-page allocation & overflow when a table's page fills up | ❌ Not implemented (insert fails when the page is full) |
 | Query language / parser | ❌ Not implemented |
 
-There is currently no query engine and no row storage. What exists so far is
-the metadata layer: creating a `.crdb` file and registering a table's typed
-schema inside it. `tests/main.c` tests `init_db` and `init_table` (including
-schema validation) by reading the `.crdb` file back; run the built
-`db-engine` binary and it prints `ok` on success.
+There is currently no query engine. What exists so far is creating a `.crdb`
+file, registering a table's typed schema inside it, and inserting rows into
+the table's single data page. `tests/tests.c` tests `init_db`, `init_table`,
+`find_table`, `get_schema` and `insert` by reading the `.crdb` file back; run
+the built `db-engine` binary and it prints `ok` on success.
 
 ---
 
@@ -34,6 +34,9 @@ Requires CMake 3.28+ and a C11 compiler. No external dependencies.
 ```sh
 cmake -B cmake-build-debug -G Ninja
 cmake --build cmake-build-debug
+
+./cmake-build-debug/db-engine   # run the tests (prints "ok")
+./cmake-build-debug/db-demo     # create DemoDB.crdb, insert rows, print its contents
 ```
 
 ---
@@ -53,14 +56,14 @@ pages**, numbered from 0.
 |   [ page_type: 2B ][ col_count: 2B ]                             |
 |   [ ColumnDef[]: col_count x (type: 1B, size: 1B) ]              |
 +-----------------------------------------------------------------+
-| PAGE N+1: Page-list page for that table (reserved, currently     |
-|   zero-filled — see "Known limitations" below)                  |
+| PAGE N+1: Data page for that table (pages_page_id)               |
+|   [ DataPage header: 8B ][ row 0 ][ row 1 ] ...                  |
 +-----------------------------------------------------------------+
 ```
 
-Each table takes **two pages** at creation time: one for its schema, one
-reserved for tracking its data pages. Actual row/data pages (a third kind,
-described below) are not created yet since insert isn't implemented.
+Each table takes **two pages** at creation time: one for its schema, and one
+data page that `insert` writes rows into. `init_table` zero-fills the data
+page; the first `insert` writes its `DataPage` header.
 
 > **Structs are written to disk as-is (not packed).** The compiler's
 > alignment padding is part of the file format, so the offsets below include
@@ -88,9 +91,9 @@ Fixed part is **16 bytes**, followed by the `TableEntry` array.
 | `table_name` | 0 | 10 bytes | `char[10]` | Table name. Must be at most 9 characters (plus the terminator); longer names are rejected by `init_table`. |
 | *(padding)* | 10 | 2 bytes | | Alignment padding before `schema_page_id`. |
 | `schema_page_id` | 12 | 4 bytes | `uint32_t` | Page id holding this table's `SchemaPage`. |
-| `page_count` | 16 | 2 bytes | `uint16_t` | Reserved for tracking how many data pages this table owns; not yet updated anywhere. |
+| `page_count` | 16 | 2 bytes | `uint16_t` | Reserved; not updated by anything yet (always 0). |
 | *(padding)* | 18 | 2 bytes | | Alignment padding before `pages_page_id`. |
-| `pages_page_id` | 20 | 4 bytes | `uint32_t` | Page id reserved for this table's data-page list; currently allocated but never written to. |
+| `pages_page_id` | 20 | 4 bytes | `uint32_t` | Page id of this table's data page, where `insert` writes rows. |
 
 ### Schema Page (`SchemaPage`)
 
@@ -137,10 +140,19 @@ disk. Its `type` (a `COL_TYPE_*` tag) selects which union member is valid:
 | `COL_TYPE_CHAR` | `as.chars` | `{ const char *data; size_t len; }` (not null-terminated) |
 
 `insert(db_name, table_name, const Value *values)` takes one `Value` per
-column, in schema order. It is declared but not implemented yet, so the
-narrowing rules (e.g. `int64_t` into a 2-byte column) are still undecided.
+column, in schema order (the caller must pass exactly `col_count` values).
+It returns `0` on success and `-1` without writing anything if a value
+doesn't fit its column:
 
-### Data Page (`DataPage`) — defined, not yet produced by any code path
+- `Value.type` differs from the column type → rejected.
+- INT outside the signed range of the column size (e.g. 128 into a 1-byte
+  column) → rejected.
+- CHAR longer than the column → rejected. Shorter is zero-padded.
+- FLOAT into a 4-byte column is converted to `float` (loses precision).
+
+Values are copied in native byte order, like the structs.
+
+### Data Page (`DataPage`)
 
 | Field | Size | Type | Description |
 | :--- | :--- | :--- | :--- |
@@ -149,23 +161,21 @@ narrowing rules (e.g. `int64_t` into a 2-byte column) are still undecided.
 | `row_count` | 2 bytes | `uint16_t` | Rows currently stored on this page. |
 | `max_rows` | 2 bytes | `uint16_t` | Capacity: `(page_size - 8) / row_len`, where `row_len` is the sum of the column sizes. |
 
-Rows, once insertion exists, are expected to be packed back-to-back
-immediately after this 8-byte header, with no padding between columns.
+Rows are packed back-to-back immediately after this 8-byte header, with no
+padding between columns: row `n` starts at byte `8 + n * row_len` of the
+page.
 
 ---
 
 ## Known limitations
 
-- **Data-page tracking is a stub**: each table reserves a `pages_page_id`
-  page and a `page_count` field, but nothing ever writes to that page or
-  increments the count — there's no way yet to actually allocate or find a
-  table's data pages. This needs to be designed as part of implementing
-  insert.
-- **`insert` is declared but has no body** (`src/commands/insert.c` is an
-  empty stub), so calling it fails to link, and there are no insert tests.
-- **Minimal tests**: `tests/main.c` is one `main()` with a small `CHECK`
-  macro, not a test framework, and it lives in the same executable as the
-  rest of the code. It covers `init_db` / `init_table` only.
+- **One data page per table**: once `row_count == max_rows`, `insert`
+  returns `-1`. There is no page growth yet, and `page_count` is unused.
+- **Minimal tests**: `tests/tests.c` is a set of test functions run from one
+  `main()` with a small `CHECK` macro, not a test framework, and it lives in
+  the same executable as the rest of the code.
+- **Path string leak**: callers of `get_db_path()` never free the path it
+  allocates.
 - `init_table`'s declaration in `db_engine.h` (`char *table_name`) doesn't
   match its definition's `char table_name[10]`, which triggers a compiler
   warning (`-Warray-parameter`) — harmless today, but worth aligning.
@@ -180,6 +190,9 @@ src/core/header.c, header.h    DB-path helpers, header read
 src/core/page.c, page.h        Page-level helpers (zero-fill a page)
 src/commands/init_db.c         Create a new .crdb file
 src/commands/init_table.c      Validate a column schema and register a new table
-src/commands/insert.c          Insert a row (empty stub)
-tests/main.c                   Test for init_db + init_table (no insert yet)
+src/core/table.c, table.h      Find a table's entry in the header
+src/core/schema.c, schema.h    Read a table's schema page
+src/commands/insert.c          Insert a row into a table's data page
+tests/tests.c                  Tests for everything above
+demo/demo.c                    Demo: create a db and tables, insert, print the file
 ```
