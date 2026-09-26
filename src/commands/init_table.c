@@ -74,7 +74,8 @@ int init_table(char *db_name, char table_name[10], uint16_t col_count,
         return -1;
     }
 
-    TableEntry *new_table = (TableEntry *)malloc(sizeof(TableEntry));
+    // calloc: the name's tail and struct padding go to disk, keep them zero.
+    TableEntry *new_table = (TableEntry *)calloc(1, sizeof(TableEntry));
     if (new_table == NULL) {
         fclose(fp);
         free(db_header);
