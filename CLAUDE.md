@@ -22,10 +22,14 @@ cmake --build cmake-build-debug
 - Everything currently builds into a single executable target `db-engine`
   (see `CMakeLists.txt`) — there is no separate library target and no
   dedicated test binary yet.
-- **The build currently fails at link time**: `insert` is declared in
-  `db_engine.h` and `src/commands/insert.c` is in `CMakeLists.txt`, but the
-  file has no function body, so `tests/main.c` hits an undefined reference
-  to `insert`. This is expected until insert is written.
+- `insert` is declared in `db_engine.h` and `src/commands/insert.c` is in
+  `CMakeLists.txt`, but the file has no function body. Nothing calls it, so
+  the build links; anything that calls `insert` will fail with an undefined
+  reference until it's written.
+- Run the test with `./cmake-build-debug/db-engine` from a scratch
+  directory: it prints `ok` on success, prints `FAIL <file>:<line>: <cond>`
+  and exits 1 on failure, and creates/deletes `./TestDB.crdb` in the
+  current directory.
 
 ## Current architecture (as implemented in code, not the README)
 
@@ -70,15 +74,17 @@ cmake --build cmake-build-debug
   (`sizeof(DataPage) + row_size > page_size`).
 - `src/commands/insert.c` — **empty stub** (only includes, no function
   body). `insert()` is declared in `db_engine.h` but not defined.
-- `tests/main.c` — **not a real test suite**, but no longer just a smoke
-  test: it's a single `main()` using `assert` (plain `assert.h`, no
-  framework) that calls `init_db`, `init_table` with a 3-column
-  `{INT4, INT1, FLOAT8}` schema, then inserts 315 rows and checks the
-  overflow into a second data page (`max_rows == 314`, `page_count == 2`,
-  `total_pages == 5`). It is **written ahead of the implementation and
-  partly stale**: it still passes a raw `uint8_t row[13]` to `insert`
-  instead of a `Value` array, so it doesn't compile cleanly against the
-  current signature, and it can't link until `insert` exists.
+- `tests/main.c` — a single `main()` that tests only what exists today
+  (`init_db` and `init_table`), with a tiny `CHECK()` macro instead of
+  `assert` (so it still fails under `NDEBUG`) and no framework. It reads
+  `TestDB.crdb` back from disk and checks: the header after `init_db`;
+  page ids / `total_pages` / `table_count` after each `init_table`; that the
+  schema page round-trips byte for byte; that every rejection case returns
+  `-1` and leaves the file unchanged (name too long, zero columns, bad
+  INT/FLOAT/CHAR size, unknown type, row too wide, missing db); and the
+  exact-fit boundary (`row_size == page_size - sizeof(DataPage)` is
+  accepted, one byte more is rejected). It does **not** call `insert`. When
+  `insert` is implemented, add its tests to this file.
 
 ### README.md and the code
 
@@ -99,7 +105,8 @@ Declared but not implemented: `insert` (signature is
 `insert(db_name, table_name, const Value *values)`; the body is empty).
 
 Not implemented yet: row read/select, any query logic, page
-overflow/growth when a data page fills up, and any real test suite.
+overflow/growth when a data page fills up, and a real test framework /
+separate test target (the only test is the `main()` in `tests/main.c`).
 
 ## Known rough edges
 

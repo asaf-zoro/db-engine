@@ -21,9 +21,9 @@ code actually does today, not a finished spec.
 
 There is currently no query engine and no row storage. What exists so far is
 the metadata layer: creating a `.crdb` file and registering a table's typed
-schema inside it. `tests/main.c` is an assertion-based test written ahead of
-`insert`, so the project does not link until `insert` is implemented (see
-"Known limitations").
+schema inside it. `tests/main.c` tests `init_db` and `init_table` (including
+schema validation) by reading the `.crdb` file back; run the built
+`db-engine` binary and it prints `ok` on success.
 
 ---
 
@@ -161,15 +161,11 @@ immediately after this 8-byte header, with no padding between columns.
   increments the count — there's no way yet to actually allocate or find a
   table's data pages. This needs to be designed as part of implementing
   insert.
-- **The project doesn't link yet**: `insert` is declared in `db_engine.h`
-  but `src/commands/insert.c` has no body, so `tests/main.c` fails with an
-  undefined reference to `insert`.
-- **`tests/main.c` is ahead of the code and partly stale**: it uses `assert`
-  (no test framework) to describe the intended insert behavior — 315 rows of
-  13 bytes overflowing into a second data page, `page_count == 2`,
-  `total_pages == 5`. But it still passes a raw `uint8_t row[13]` to
-  `insert`, not the `Value` array the current signature expects, and it
-  doesn't yet exercise the new column types beyond building the schema.
+- **`insert` is declared but has no body** (`src/commands/insert.c` is an
+  empty stub), so calling it fails to link, and there are no insert tests.
+- **Minimal tests**: `tests/main.c` is one `main()` with a small `CHECK`
+  macro, not a test framework, and it lives in the same executable as the
+  rest of the code. It covers `init_db` / `init_table` only.
 - `init_table`'s declaration in `db_engine.h` (`char *table_name`) doesn't
   match its definition's `char table_name[10]`, which triggers a compiler
   warning (`-Warray-parameter`) — harmless today, but worth aligning.
@@ -185,5 +181,5 @@ src/core/page.c, page.h        Page-level helpers (zero-fill a page)
 src/commands/init_db.c         Create a new .crdb file
 src/commands/init_table.c      Validate a column schema and register a new table
 src/commands/insert.c          Insert a row (empty stub)
-tests/main.c                   Assertion-based test for init + insert (insert not implemented yet)
+tests/main.c                   Test for init_db + init_table (no insert yet)
 ```
