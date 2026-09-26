@@ -21,7 +21,7 @@ cmake --build cmake-build-debug
   don't commit build artifacts or generated `.crdb` database files.
 - `CMakeLists.txt` lists the engine sources once in `ENGINE_SOURCES` and
   builds two executables from them (no library target):
-  - `db-engine` — the test runner, `main()` in `tests/tests.c`.
+  - `db-engine-test` — the test runner, `main()` in `tests/tests.c`.
   - `db-demo` — `demo/demo.c`: creates `DemoDB` with three tables, inserts
     rows, shows rejected inserts, then reads the file back and prints the
     header, each table's schema and its decoded rows. It leaves
@@ -31,7 +31,7 @@ cmake --build cmake-build-debug
 - Tests and the demo build `.crdb` paths with `get_db_path()`, never a
   hardcoded path or `DB_PATH` macro (user preference); the tests keep the
   result in a static `db_path` set in `main()`.
-- Run the tests with `./cmake-build-debug/db-engine`
+- Run the tests with `./cmake-build-debug/db-engine-test`
   from a scratch directory: it prints `ok` on success, prints
   `FAIL <file>:<line>: <cond>` and exits 1 on failure, and creates
   `./TestDB.crdb` in the current directory. The user commented out the final

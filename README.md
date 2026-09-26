@@ -23,7 +23,7 @@ There is currently no query engine. What exists so far is creating a `.crdb`
 file, registering a table's typed schema inside it, and inserting rows into
 the table's single data page. `tests/tests.c` tests `init_db`, `init_table`,
 `find_table`, `get_schema` and `insert` by reading the `.crdb` file back; run
-the built `db-engine` binary and it prints `ok` on success.
+the built `db-engine-test` binary and it prints `ok` on success.
 
 ---
 
@@ -35,7 +35,7 @@ Requires CMake 3.28+ and a C11 compiler. No external dependencies.
 cmake -B cmake-build-debug -G Ninja
 cmake --build cmake-build-debug
 
-./cmake-build-debug/db-engine   # run the tests (prints "ok")
+./cmake-build-debug/db-engine-test   # run the tests (prints "ok")
 ./cmake-build-debug/db-demo     # create DemoDB.crdb, insert rows, print its contents
 ```
 
